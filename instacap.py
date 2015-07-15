@@ -4,6 +4,7 @@ import os
 import sys
 import math
 import numpy
+import colorsys
 import random
 import PIL.Image, PIL.ImageStat
 
@@ -39,9 +40,7 @@ class Cap:
             g = int(stats.sum[1] / stats.count[1])
             b = int(stats.sum[2] / stats.count[2])
         else:
-            p = lambda xy, size=image.size[0]: xy / 150 * size
             cx, cy = image.size[0] / 2, image.size[1] / 2
-            radius = p(60)
             radius = image.size[0] / 2
 
             count = 0
@@ -59,18 +58,15 @@ class Cap:
         return (r, g, b)
 
 class CapPalette:
-    def __init__(self, directory, prob, image_size):
+    def __init__(self, directory=None, prob=1, image_size=None):
         super(CapPalette, self).__init__()
 
         self._image_size = image_size
-        self._caps = self._scan_files(directory, prob, image_size)
+        self._caps = []
+        if directory is not None:
+            self._caps = self._scan_files(directory, prob, image_size)
 
     def _scan_files(self, directory, prob, size):
-        hist_x = range(0, 256)
-        hist_r = [0] * 256
-        hist_g = [0] * 256
-        hist_b = [0] * 256
-
         caps = []
         for filename in os.listdir(directory):
             path = os.path.join(sys.argv[1], filename)
@@ -88,32 +84,28 @@ class CapPalette:
                 continue
 
             caps.append(Cap(im, size))
-
-            stats = PIL.ImageStat.Stat(im)
-            r, g, b = stats.sum
-            r = int(r / stats.count[0])
-            g = int(g / stats.count[1])
-            b = int(b / stats.count[2])
-
-            hist_r[r] += 1
-            hist_g[g] += 1
-            hist_b[b] += 1
-
-            #print(path, im.format, im.size, im.mode, int(r), int(g), int(b))
-        
-        #pyplot.plot(hist_x, hist_r, "r")
-        #pyplot.plot(hist_x, hist_g, "g")
-        #pyplot.plot(hist_x, hist_b, "b")
-        #pyplot.show()
         return caps
 
-    def find_color(self, color):
+    def optimize(self, threshold=3.0):
+        palette = CapPalette()
+        palette._image_size = self._image_size
+
+        for i in range(len(self._caps)):
+            cap = self._caps[i]
+            index, color = self.find_color(cap.color, [i])
+            distance = math.sqrt(color_distance(cap.color, color))
+            if index == -1 or distance > threshold:
+                palette.caps.append(cap)
+
+        return palette
+
+    def find_color(self, color, except_index=[]):
         best_distance = 255*255*255
-        best_cap = 0
+        best_cap = -1
         best_color = (0, 0, 0)
         for index, cap in enumerate(self._caps):
             dist = color_distance(color, cap.color)
-            if (dist < best_distance):
+            if (dist < best_distance and not index in except_index):
                 #print("found: %d %d" % (index, dist))
                 best_distance = dist
                 best_cap = index
@@ -122,7 +114,14 @@ class CapPalette:
         return best_cap, best_color
     
     def create_palette_image(self):
-        pass
+        size = math.ceil(math.sqrt(len(self._caps)))
+        image = PIL.Image.new("RGB", (size, size))
+        caps = list(self._caps)
+        caps.sort(key = lambda cap: colorsys.rgb_to_hsv(*map(lambda c: c / 255, cap.color))[0])
+        for i in range(len(caps)):
+            color = caps[i].color
+            image.putpixel((i % size, i // size), color)
+        return image
     
     @property
     def image_size(self):
@@ -170,13 +169,18 @@ if __name__ == "__main__":
         print("Usage: {} directory".format(sys.argv[0]))
         sys.exit(1)
 
-    prob = 0.25
+    prob = 1
     cap_dimensions = (30, 30)
     input_dimensions = (30*2, 40*2)
 
     print("Loading caps...")
     palette = CapPalette(sys.argv[1], prob, cap_dimensions)
     print("Loaded %d caps." % len(palette.caps))
+    optimized = palette.optimize(5.0)
+    print("Optimized: %d" % len(optimized.caps))
+    palette.create_palette_image().save("palette1.png")
+    optimized.create_palette_image().save("palette2.png")
+    palette = optimized
 
     caps = palette.caps
     size = math.ceil(math.sqrt(len(caps)))
