@@ -10,8 +10,9 @@ import PIL.Image, PIL.ImageStat
 
 from matplotlib import pyplot
 
-def color_distance(color1, color2):
+def color_distance2(color1, color2):
     return sum([ (color1[i] - color2[i])**2 for i in range(3) ])
+color_distance = color_distance2
 
 def color_difference(color1, color2):
     return tuple([ color1[i] - color2[i] for i in range(3) ])
@@ -22,6 +23,93 @@ def color_quant_error(color, quant_error, quant_factor):
     g += quant_error[1] * quant_factor
     b += quant_error[2] * quant_factor
     return (int(r), int(g), int(b))
+
+class ColorSubpalette:
+    def __init__(self, position, palette_colors):
+        super(ColorSubpalette, self).__init__()
+
+        self.position = position
+        self.initialized = False
+        self.palette_colors = palette_colors
+        self.colors = []
+    
+    def deinitialize(self, palette_colors):
+        self.initialized = False
+        self.palette_colors = self.palette_colors
+        self.colors = []
+
+    def initialize(self):
+        self.initialized = True
+
+        center = (
+            (self.position[0] * 256 + 128) // ColorPalette.BINS,
+            (self.position[1] * 256 + 128) // ColorPalette.BINS,
+            (self.position[2] * 256 + 128) // ColorPalette.BINS,
+        )
+
+        nearest = 256 * 256 * 4
+        for index, color in self.palette_colors:
+            distance = color_distance2(color, center)
+            nearest = min(nearest, distance)
+            if nearest == 0:
+                break
+
+        nearest_dist = (math.sqrt(nearest) + 2 * math.sqrt(2) * (128 / ColorPalette.BINS)) ** 2 + 1
+        for index, color in self.palette_colors:
+            if color_distance2(color, center) <= nearest_dist:
+                self.colors.append((index, color))
+
+        #print("Initialize subpalette %s: %d/%d colors" % (self.position, len(self.colors), len(self.palette_colors)))
+
+    def find_color(self, color):
+        if not self.initialized:
+            self.initialize()
+        
+        nearest_index = -1
+        nearest_dist = 256 * 256 * 4
+        for index, other_color in self.colors:
+            dist = color_distance2(color, other_color)
+            if dist < nearest_dist:
+                nearest_index = index
+                nearest_dist = dist
+                if nearest_dist == 0:
+                    return nearest_index
+        return nearest_index
+
+class ColorPalette:
+    
+    SPLITS = 4
+    BINS = 1 << SPLITS
+    BIN_FOR_COLOR = lambda c, splits=SPLITS: c >> (8 - splits)
+
+    def __init__(self):
+        super(ColorPalette, self).__init__()
+
+        self._subpalettes = [None] * ColorPalette.BINS**3
+        self._colors = []
+
+        for r in range(ColorPalette.BINS):
+            for g in range(ColorPalette.BINS):
+                for b in range(ColorPalette.BINS):
+                    self._subpalettes[r + g * ColorPalette.BINS + b * ColorPalette.BINS**2] = ColorSubpalette((r, g, b), self._colors)
+
+    def _subpalette(self, color):
+        r = ColorPalette.BIN_FOR_COLOR(color[0])
+        g = ColorPalette.BIN_FOR_COLOR(color[1])
+        b = ColorPalette.BIN_FOR_COLOR(color[2])
+        return self._subpalettes[r + g * ColorPalette.BINS + b * ColorPalette.BINS**2]
+
+    def add_color(self, index, color):
+        self._colors.append((index, color))
+        self._subpalette(color).deinitialize(self._colors)
+
+    def clear_colors(self):
+        self._colors = []
+        for subpalette in self._subpalettes:
+            subpalette.deinitialize(self._colors)
+
+    def find_color(self, color):
+        return self._subpalette(color).find_color(color)
 
 class Cap:
     def __init__(self, image, size):
@@ -63,11 +151,13 @@ class CapPalette:
 
         self._image_size = image_size
         self._caps = []
+        self._palette = ColorPalette()
         if directory is not None:
-            self._caps = self._scan_files(directory, prob, image_size)
+            self._caps, self._palette = self._scan_files(directory, prob, image_size)
 
     def _scan_files(self, directory, prob, size):
         caps = []
+        palette = ColorPalette()
         for filename in os.listdir(directory):
             path = os.path.join(sys.argv[1], filename)
             if not path.endswith((".jpg", ".jpeg", ".png")):
@@ -83,8 +173,12 @@ class CapPalette:
             if random.random() > prob:
                 continue
 
-            caps.append(Cap(im, size))
-        return caps
+            cap = Cap(im, size)
+            caps.append(cap)
+            palette.add_color(len(caps) - 1, cap.color)
+            #subpal = (ColorPalette.BIN_FOR_COLOR(cap.color[0]), ColorPalette.BIN_FOR_COLOR(cap.color[1]), ColorPalette.BIN_FOR_COLOR(cap.color[2]))
+            #print(cap.color, "->", subpal)
+        return caps, palette
 
     def optimize(self, threshold=3.0):
         palette = CapPalette()
@@ -96,10 +190,14 @@ class CapPalette:
             distance = math.sqrt(color_distance(cap.color, color))
             if index == -1 or distance > threshold:
                 palette.caps.append(cap)
+                palette._palette.add_color(len(palette.caps) - 1, cap.color)
 
         return palette
 
     def find_color(self, color, except_index=[]):
+        index = self._palette.find_color(color)
+        return index, self._caps[index].color
+
         best_distance = 255*255*255
         best_cap = -1
         best_color = (0, 0, 0)
@@ -169,18 +267,18 @@ if __name__ == "__main__":
         print("Usage: {} directory".format(sys.argv[0]))
         sys.exit(1)
 
-    prob = 1
+    prob = 0.5
     cap_dimensions = (30, 30)
     input_dimensions = (30*2, 40*2)
 
     print("Loading caps...")
     palette = CapPalette(sys.argv[1], prob, cap_dimensions)
     print("Loaded %d caps." % len(palette.caps))
-    optimized = palette.optimize(5.0)
-    print("Optimized: %d" % len(optimized.caps))
-    palette.create_palette_image().save("palette1.png")
-    optimized.create_palette_image().save("palette2.png")
-    palette = optimized
+    #optimized = palette.optimize(5.0)
+    #print("Optimized: %d" % len(optimized.caps))
+    #palette.create_palette_image().save("palette1.png")
+    #optimized.create_palette_image().save("palette2.png")
+    #palette = optimized
 
     caps = palette.caps
     size = math.ceil(math.sqrt(len(caps)))
