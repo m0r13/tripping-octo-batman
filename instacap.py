@@ -33,7 +33,7 @@ class ColorSubpalette:
         self.palette_colors = palette_colors
         self.colors = []
     
-    def deinitialize(self, palette_colors):
+    def set_colors(self, palette_colors):
         self.initialized = False
         self.palette_colors = self.palette_colors
         self.colors = []
@@ -78,7 +78,7 @@ class ColorSubpalette:
 
 class ColorPalette:
     
-    SPLITS = 4
+    SPLITS = 3
     BINS = 1 << SPLITS
     BIN_FOR_COLOR = lambda c, splits=SPLITS: c >> (8 - splits)
 
@@ -101,12 +101,12 @@ class ColorPalette:
 
     def add_color(self, index, color):
         self._colors.append((index, color))
-        self._subpalette(color).deinitialize(self._colors)
+        self._subpalette(color).set_colors(self._colors)
 
     def clear_colors(self):
         self._colors = []
         for subpalette in self._subpalettes:
-            subpalette.deinitialize(self._colors)
+            subpalette.set_colors(self._colors)
 
     def find_color(self, color):
         return self._subpalette(color).find_color(color)
