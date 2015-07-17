@@ -7,9 +7,10 @@ from bs4 import BeautifulSoup
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: {} url directory".format(sys.argv[0]))
+        print("Usage: {} country directory".format(sys.argv[0]))
         sys.exit(1)
-    url, directory = sys.argv[1:3]
+    country, directory = sys.argv[1:3]
+    url = "http://crowncapcollection.com/list.php?country=%s" % country
 
     data = urllib.request.urlopen(url).read()
     soup = BeautifulSoup(data, "html.parser")
@@ -20,7 +21,7 @@ if __name__ == "__main__":
             continue
         src = image["src"]
         full_src = "http://crowncapcollection.com/" + src
-        basename = os.path.basename(src)
+        basename = src.replace("/", "_")
         path = os.path.join(directory, basename)
 
         if os.path.exists(path):
