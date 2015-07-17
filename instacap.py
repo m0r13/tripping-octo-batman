@@ -13,7 +13,6 @@ from matplotlib import pyplot
 
 def color_distance2(color1, color2):
     return sum([ (color1[i] - color2[i])**2 for i in range(3) ])
-color_distance = color_distance2
 
 def color_difference(color1, color2):
     return tuple([ color1[i] - color2[i] for i in range(3) ])
@@ -196,7 +195,7 @@ class CapPalette:
         for i in range(len(self._caps)):
             cap = self._caps[i]
             index, color = self.find_color(cap.color, i)
-            distance = math.sqrt(color_distance(cap.color, color))
+            distance = math.sqrt(color_distance2(cap.color, color))
             if index == -1 or distance > threshold:
                 palette.add_cap(cap)
 
@@ -220,12 +219,13 @@ class CapPalette:
     def caps(self):
         return self._caps
 
-def floyd_steinberg(image, palette):
+def floyd_steinberg(image, palette, verbose=False):
     width, height = image.size
     data = [0] * (width * height)
-    for x in range(width):
-        print(x)
-        for y in range(height):
+    for y in range(height):
+        if verbose:
+            print("Row %d of %d processed." % (y+1, height))
+        for x in range(width):
             old = image.getpixel((x, y))
             new_index, new = palette.find_color(old)
             image.putpixel((x, y), new)
@@ -262,6 +262,8 @@ def size_tuple(string):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Cheers!")
+    parser.add_argument("--verbose", "-v", metavar="", action="store_const", const=True, default=False,
+            help="displays additional progress information")
     parser.add_argument("--palette-probability", "-p", metavar="prob".upper(), type=float, default=1.0,
             help="don't use every picture of the caps directory: use pictures only with a specific probability (from 0.0 to 1.0)")
     parser.add_argument("--palette-optimize", "-o", metavar="num_colors".upper(), type=int,
@@ -288,32 +290,35 @@ if __name__ == "__main__":
         output_height = int(output_width / image.size[0] * image.size[1])
     elif output_width is None and output_height is not None:
         output_width = int(output_height / image.size[1] * image.size[0])
-    else:
+    elif (output_width, output_height) == (None, None):
         print("You have to specify output with or height!")
         print()
         parser.print_usage()
         sys.exit(1)
     image = image.resize((output_width, output_height))
 
-    print("Loading caps...")
+    if args["verbose"]:
+        print("Loading caps...")
     palette = CapPalette(args["cap_size"])
     palette.add_directory(args["caps"], args["palette_probability"])
-    print("Loaded %d caps." % len(palette.caps))
+    if args["verbose"]:
+        print("Loaded %d caps." % len(palette.caps))
     if args["palette_optimize"] is not None:
-        optimized = palette.optimize(5.0)
-        print("Optimized: %d" % len(optimized.caps))
-        palette.create_palette_image().save("palette1.png")
-        optimized.create_palette_image().save("palette2.png")
-        palette = optimized
+        optimized = palette.optimize(args["palette_optimize"])
+        #if args["verbose"]:
+        #    print("Optimized palette: %d colors" % len(optimized.caps))
+    palette.create_palette_image().save("palette1.png")
+    #    #optimized.create_palette_image().save("palette2.png")
+    #    palette = optimized
 
     quantized = PIL.Image.new("RGB", image.size)
-    data = floyd_steinberg(image, palette)
+    data = floyd_steinberg(image, palette, args["verbose"])
     for x in range(output_width):
         for y in range(output_height):
             index = data[y * image.size[0] + x]
             quantized.putpixel((x, y), palette.caps[index].color)
-    quantized.save("test1.jpg")
     create_cap_image((output_width, output_height), data, palette).save(args["output"])
 
-    print("Have fun drinking %d beers!" % (output_width * output_height))
+    if args["verbose"]:
+        print("Have fun drinking %d beers!" % (output_width * output_height))
 
