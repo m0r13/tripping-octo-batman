@@ -3,13 +3,10 @@
 import os
 import sys
 import math
-import numpy
 import colorsys
 import random
 import argparse
 import PIL.Image, PIL.ImageStat
-
-from matplotlib import pyplot
 
 def color_distance2(color1, color2):
     return sum([ (color1[i] - color2[i])**2 for i in range(3) ])
@@ -35,7 +32,7 @@ class ColorSubpalette:
     
     def set_colors(self, palette_colors):
         self.initialized = False
-        self.palette_colors = self.palette_colors
+        self.palette_colors = palette_colors
         self.colors = []
 
     def initialize(self):
@@ -122,27 +119,27 @@ class Cap:
 
     def _calc_color(self, image):
         r, g, b = 0, 0, 0
-        if False:
-            stats = PIL.ImageStat.Stat(image)
-            r = int(stats.sum[0] / stats.count[0]) 
-            g = int(stats.sum[1] / stats.count[1])
-            b = int(stats.sum[2] / stats.count[2])
-        else:
-            cx, cy = image.size[0] / 2, image.size[1] / 2
-            radius = image.size[0] / 2
+        
+        #stats = PIL.ImageStat.Stat(image)
+        #r = int(stats.sum[0] / stats.count[0]) 
+        #g = int(stats.sum[1] / stats.count[1])
+        #b = int(stats.sum[2] / stats.count[2])
+        
+        cx, cy = image.size[0] / 2, image.size[1] / 2
+        radius = min(image.size) / 2
 
-            count = 0
-            for x in range(image.size[0]):
-                for y in range(image.size[1]):
-                    if (cx - x)**2 + (cy - y)**2 <= radius**2:
-                        pixel = image.getpixel((x, y))
-                        r += pixel[0]
-                        g += pixel[1]
-                        b += pixel[2]
-                        count += 1
-            r //= count
-            g //= count
-            b //= count
+        count = 0
+        for x in range(image.size[0]):
+            for y in range(image.size[1]):
+                if (cx - x)**2 + (cy - y)**2 <= radius**2:
+                    pixel = image.getpixel((x, y))
+                    r += pixel[0]
+                    g += pixel[1]
+                    b += pixel[2]
+                    count += 1
+        r //= count
+        g //= count
+        b //= count
         return (r, g, b)
 
 class CapPalette:
