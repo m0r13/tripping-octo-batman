@@ -13,7 +13,6 @@ from matplotlib import pyplot
 
 def color_distance2(color1, color2):
     return sum([ (color1[i] - color2[i])**2 for i in range(3) ])
-color_distance = color_distance2
 
 def color_difference(color1, color2):
     return tuple([ color1[i] - color2[i] for i in range(3) ])
@@ -196,7 +195,7 @@ class CapPalette:
         for i in range(len(self._caps)):
             cap = self._caps[i]
             index, color = self.find_color(cap.color, i)
-            distance = math.sqrt(color_distance(cap.color, color))
+            distance = math.sqrt(color_distance2(cap.color, color))
             if index == -1 or distance > threshold:
                 palette.add_cap(cap)
 
@@ -308,9 +307,9 @@ if __name__ == "__main__":
         optimized = palette.optimize(args["palette_optimize"])
         #if args["verbose"]:
         #    print("Optimized palette: %d colors" % len(optimized.caps))
-        #palette.create_palette_image().save("palette1.png")
-        #optimized.create_palette_image().save("palette2.png")
-        palette = optimized
+    palette.create_palette_image().save("palette1.png")
+    #    #optimized.create_palette_image().save("palette2.png")
+    #    palette = optimized
 
     quantized = PIL.Image.new("RGB", image.size)
     data = floyd_steinberg(image, palette, args["verbose"])
