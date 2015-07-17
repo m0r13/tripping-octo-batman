@@ -7,10 +7,12 @@ from bs4 import BeautifulSoup
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: {} country directory".format(sys.argv[0]))
+        print("Usage: {} search-term directory".format(sys.argv[0]))
         sys.exit(1)
-    country, directory = sys.argv[1:3]
-    url = "http://crowncapcollection.com/list.php?country=%s" % country
+    search, directory = sys.argv[1:3]
+    url = "http://crowncapcollection.com/list.php?" + search
+    if not os.path.isdir(directory):
+        os.mkdir(directory)
 
     data = urllib.request.urlopen(url).read()
     soup = BeautifulSoup(data, "html.parser")
