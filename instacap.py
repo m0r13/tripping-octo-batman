@@ -6,6 +6,7 @@ import math
 import numpy
 import colorsys
 import random
+import argparse
 import PIL.Image, PIL.ImageStat
 
 from matplotlib import pyplot
@@ -168,7 +169,7 @@ class CapPalette:
 
     def add_directory(self, directory, prob=1):
         for filename in os.listdir(directory):
-            path = os.path.join(sys.argv[1], filename)
+            path = os.path.join(directory, filename)
             if not path.endswith((".jpg", ".jpeg", ".png")):
                 continue
             if random.random() <= prob:
@@ -252,35 +253,58 @@ def create_cap_image(size, data, palette):
             image.paste(cap, (x * caps_w, y * caps_h))
     return image
 
+def size_tuple(string):
+    try:
+        x, y = map(int, string.split(","))
+        return x, y
+    except:
+        raise argparse.ArgumentTypeError("Size tuple must be 'x,y'!")
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: {} directory".format(sys.argv[0]))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Cheers!")
+    parser.add_argument("--palette-probability", "-p", metavar="prob".upper(), type=float, default=1.0,
+            help="don't use every picture of the caps directory: use pictures only with a specific probability (from 0.0 to 1.0)")
+    parser.add_argument("--palette-optimize", "-o", metavar="num_colors".upper(), type=int,
+            help="optimize the calculated color palette to use a maximum of NUM_COLORS colors (= caps)")
+    parser.add_argument("--cap-size", "-s", metavar="size".upper(), type=size_tuple, default=(30, 30),
+            help="size of the cap images to use the output image, must be in the format 'width,height', default is '30,30'")
+    parser.add_argument("--width", type=int,
+            help="width of the output image (in caps, not pixels), you have to specify at least one of with and height")
+    parser.add_argument("--height", type=int,
+            help="height of the output image (in caps, not pixels), you have to specify at least one of width and height")
+    parser.add_argument("caps",
+            help="directory with the images of available caps")
+    parser.add_argument("input",
+            help="filename of the input image to be processed")
+    parser.add_argument("output",
+            help="filename of the generated cap mosaic image")
+    args = vars(parser.parse_args())
 
-    palette_probability = 0.5
-    palette_optimize = 5.0
-    cap_size = (30, 30)
+    output_width = args["width"]
+    output_height = args["height"]
 
-    input_filename = "startseite_teaser.jpg"
-    output_width = 100
-    output_height = None
-
-    image = PIL.Image.open(input_filename)
+    image = PIL.Image.open(args["input"])
     if output_width is not None and output_height is None:
         output_height = int(output_width / image.size[0] * image.size[1])
     elif output_width is None and output_height is not None:
         output_width = int(output_height / image.size[1] * image.size[0])
+    else:
+        print("You have to specify output with or height!")
+        print()
+        parser.print_usage()
+        sys.exit(1)
     image = image.resize((output_width, output_height))
 
     print("Loading caps...")
-    palette = CapPalette(cap_size)
-    palette.add_directory(sys.argv[1], palette_probability)
+    palette = CapPalette(args["cap_size"])
+    palette.add_directory(args["caps"], args["palette_probability"])
     print("Loaded %d caps." % len(palette.caps))
-    optimized = palette.optimize(5.0)
-    print("Optimized: %d" % len(optimized.caps))
-    palette.create_palette_image().save("palette1.png")
-    optimized.create_palette_image().save("palette2.png")
-    palette = optimized
+    if args["palette_optimize"] is not None:
+        optimized = palette.optimize(5.0)
+        print("Optimized: %d" % len(optimized.caps))
+        palette.create_palette_image().save("palette1.png")
+        optimized.create_palette_image().save("palette2.png")
+        palette = optimized
 
     quantized = PIL.Image.new("RGB", image.size)
     data = floyd_steinberg(image, palette)
@@ -289,7 +313,7 @@ if __name__ == "__main__":
             index = data[y * image.size[0] + x]
             quantized.putpixel((x, y), palette.caps[index].color)
     quantized.save("test1.jpg")
-    create_cap_image((output_width, output_height), data, palette).save("test2.jpg")
+    create_cap_image((output_width, output_height), data, palette).save(args["output"])
 
     print("Have fun drinking %d beers!" % (output_width * output_height))
-   
+
