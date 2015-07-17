@@ -61,7 +61,7 @@ class ColorSubpalette:
 
         #print("Initialize subpalette %s: %d/%d colors" % (self.position, len(self.colors), len(self.palette_colors)))
 
-    def find_color(self, color):
+    def find_color(self, color, except_color=-1):
         if not self.initialized:
             self.initialize()
         
@@ -69,7 +69,7 @@ class ColorSubpalette:
         nearest_dist = 256 * 256 * 4
         for index, other_color in self.colors:
             dist = color_distance2(color, other_color)
-            if dist < nearest_dist:
+            if dist < nearest_dist and index != except_color:
                 nearest_index = index
                 nearest_dist = dist
                 if nearest_dist == 0:
@@ -108,8 +108,8 @@ class ColorPalette:
         for subpalette in self._subpalettes:
             subpalette.set_colors(self._colors)
 
-    def find_color(self, color):
-        return self._subpalette(color).find_color(color)
+    def find_color(self, color, except_color=-1):
+        return self._subpalette(color).find_color(color, except_color)
 
 class Cap:
     def __init__(self, image, size):
@@ -146,71 +146,61 @@ class Cap:
         return (r, g, b)
 
 class CapPalette:
-    def __init__(self, directory=None, prob=1, image_size=None):
+    def __init__(self, cap_size):
         super(CapPalette, self).__init__()
 
-        self._image_size = image_size
+        self._cap_size = cap_size
         self._caps = []
         self._palette = ColorPalette()
-        if directory is not None:
-            self._caps, self._palette = self._scan_files(directory, prob, image_size)
 
-    def _scan_files(self, directory, prob, size):
-        caps = []
-        palette = ColorPalette()
+    def add_cap(self, cap):
+        self._caps.append(cap)
+        self._palette.add_color(len(self._caps) - 1, cap.color)
+
+    def add_file(self, filename):
+        im = None
+        try:
+            im = PIL.Image.open(filename)
+        except OSError as e:
+            print(e)
+            return
+        self.add_cap(Cap(im, self._cap_size))
+
+    def add_directory(self, directory, prob=1):
         for filename in os.listdir(directory):
             path = os.path.join(sys.argv[1], filename)
             if not path.endswith((".jpg", ".jpeg", ".png")):
                 continue
-            
-            im = None
-            try:
-                im = PIL.Image.open(path)
-            except OSError as e:
-                print(e)
-                continue
+            if random.random() <= prob:
+                self.add_file(path)
+ 
+    def find_color(self, color, except_index=-1):
+        index = self._palette.find_color(color, except_index)
+        return index, self._caps[index].color
 
-            if random.random() > prob:
-                continue
-
-            cap = Cap(im, size)
-            caps.append(cap)
-            palette.add_color(len(caps) - 1, cap.color)
-            #subpal = (ColorPalette.BIN_FOR_COLOR(cap.color[0]), ColorPalette.BIN_FOR_COLOR(cap.color[1]), ColorPalette.BIN_FOR_COLOR(cap.color[2]))
-            #print(cap.color, "->", subpal)
-        return caps, palette
-
-    def optimize(self, threshold=3.0):
-        palette = CapPalette()
-        palette._image_size = self._image_size
+        #best_distance = 255*255*255
+        #best_cap = -1
+        #best_color = (0, 0, 0)
+        #for index, cap in enumerate(self._caps):
+        #    dist = color_distance(color, cap.color)
+        #    if (dist < best_distance and not index in except_index):
+        #        best_distance = dist
+        #        best_cap = index
+        #        best_color = cap.color
+        #return best_cap, best_color
+    
+    def optimize(self, threshold):
+        palette = CapPalette(self._cap_size)
 
         for i in range(len(self._caps)):
             cap = self._caps[i]
-            index, color = self.find_color(cap.color, [i])
+            index, color = self.find_color(cap.color, i)
             distance = math.sqrt(color_distance(cap.color, color))
             if index == -1 or distance > threshold:
-                palette.caps.append(cap)
-                palette._palette.add_color(len(palette.caps) - 1, cap.color)
+                palette.add_cap(cap)
 
         return palette
 
-    def find_color(self, color, except_index=[]):
-        index = self._palette.find_color(color)
-        return index, self._caps[index].color
-
-        best_distance = 255*255*255
-        best_cap = -1
-        best_color = (0, 0, 0)
-        for index, cap in enumerate(self._caps):
-            dist = color_distance(color, cap.color)
-            if (dist < best_distance and not index in except_index):
-                #print("found: %d %d" % (index, dist))
-                best_distance = dist
-                best_cap = index
-                best_color = cap.color
-        #print("best: %d %s" % (best_cap, best_color))
-        return best_cap, best_color
-    
     def create_palette_image(self):
         size = math.ceil(math.sqrt(len(self._caps)))
         image = PIL.Image.new("RGB", (size, size))
@@ -222,8 +212,8 @@ class CapPalette:
         return image
     
     @property
-    def image_size(self):
-        return self._image_size
+    def cap_size(self):
+        return self._cap_size
 
     @property
     def caps(self):
@@ -252,7 +242,7 @@ def floyd_steinberg(image, palette):
     return data
 
 def create_cap_image(size, data, palette):
-    caps_w, caps_h = palette.image_size
+    caps_w, caps_h = palette.cap_size
     caps_x, caps_y = size
     image = PIL.Image.new("RGB", (caps_x * caps_w, caps_y * caps_h))
     for x in range(caps_x):
@@ -267,36 +257,39 @@ if __name__ == "__main__":
         print("Usage: {} directory".format(sys.argv[0]))
         sys.exit(1)
 
-    prob = 0.5
-    cap_dimensions = (30, 30)
-    input_dimensions = (30*2, 40*2)
+    palette_probability = 0.5
+    palette_optimize = 5.0
+    cap_size = (30, 30)
+
+    input_filename = "startseite_teaser.jpg"
+    output_width = 100
+    output_height = None
+
+    image = PIL.Image.open(input_filename)
+    if output_width is not None and output_height is None:
+        output_height = int(output_width / image.size[0] * image.size[1])
+    elif output_width is None and output_height is not None:
+        output_width = int(output_height / image.size[1] * image.size[0])
+    image = image.resize((output_width, output_height))
 
     print("Loading caps...")
-    palette = CapPalette(sys.argv[1], prob, cap_dimensions)
+    palette = CapPalette(cap_size)
+    palette.add_directory(sys.argv[1], palette_probability)
     print("Loaded %d caps." % len(palette.caps))
-    #optimized = palette.optimize(5.0)
-    #print("Optimized: %d" % len(optimized.caps))
-    #palette.create_palette_image().save("palette1.png")
-    #optimized.create_palette_image().save("palette2.png")
-    #palette = optimized
+    optimized = palette.optimize(5.0)
+    print("Optimized: %d" % len(optimized.caps))
+    palette.create_palette_image().save("palette1.png")
+    optimized.create_palette_image().save("palette2.png")
+    palette = optimized
 
-    caps = palette.caps
-    size = math.ceil(math.sqrt(len(caps)))
-    image = PIL.Image.new("RGB", (size, size))
-    for i in range(len(caps)):
-        color = caps[i].color
-        image.putpixel((i % size, i // size), color)
-    image.save("palette.png")
-
-    minion = PIL.Image.open("input2.jpg").resize(input_dimensions)
-    width, height = minion.size
-    quantized = PIL.Image.new("RGB", (width, height))
-
-    data = floyd_steinberg(minion, palette)
-    for x in range(width):
-        for y in range(height):
-            index = data[y * width + x]
+    quantized = PIL.Image.new("RGB", image.size)
+    data = floyd_steinberg(image, palette)
+    for x in range(output_width):
+        for y in range(output_height):
+            index = data[y * image.size[0] + x]
             quantized.putpixel((x, y), palette.caps[index].color)
     quantized.save("test1.jpg")
-    create_cap_image(input_dimensions, data, palette).save("test2.jpg")
+    create_cap_image((output_width, output_height), data, palette).save("test2.jpg")
+
+    print("Have fun drinking %d beers!" % (output_width * output_height))
    
